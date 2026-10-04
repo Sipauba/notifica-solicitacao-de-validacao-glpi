@@ -1,0 +1,241 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n    tv.id AS validacao_id,\n    tv.status,\n    t.id AS numero_chamado,\n    t.name AS titulo,\n    CONCAT(COALESCE(uv.firstname, ''), ' ', COALESCE(uv.realname, '')) AS nome_validador,\n    COALESCE(uv.mobile, uv.phone, uv.phone2) AS telefone_validador\nFROM glpi_ticketvalidations tv\nINNER JOIN glpi_tickets t \n    ON t.id = tv.tickets_id\nINNER JOIN glpi_users uv \n    ON uv.id = tv.users_id_validate\nWHERE tv.NOTIFICADO = 0;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.4,
+      "position": [
+        -384,
+        256
+      ],
+      "id": "835cd7dd-4940-479e-a1fd-457821f5aa90",
+      "name": "MySQL",
+      "credentials": {
+        "mySql": {
+          "id": "xxxxxxxxxxxxxxxxxxxx",
+          "name": "MySQL GLPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://xxxxxxxxxxxxxxxxxxxx/message/sendText/xxxxxxxxxxxxxxxxxxxx",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "number",
+              "value": "={{ $json.telefone_formatado }}"
+            },
+            {
+              "name": "text",
+              "value": "=Olá! 👋\n\nVocê possui um chamado aguardando sua validação.\n\n🔢 Chamado Nº: {{ $json.numero_chamado }}\n📄 Título: {{ $json.titulo }}\n🌐 https://xxxxxxxxxxxxxxxxxxxx/front/ticket.form.php?id={{ $json.numero_chamado }}\n\nPor favor, verifique o chamado no GLPI da organização. Realize a validação quando possível."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        288,
+        112
+      ],
+      "id": "0f996e4f-d384-4051-b6ec-6fc9feaba840",
+      "name": "Envia mensagem WhatsApp",
+      "executeOnce": false,
+      "retryOnFail": false,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "xxxxxxxxxxxxxxxxxxxx",
+          "name": "WhatsApp API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update glpi_ticketvalidations set NOTIFICADO = 1 where NOTIFICADO = 0",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.4,
+      "position": [
+        512,
+        112
+      ],
+      "id": "7f41099c-04ed-4dda-a556-6ba2eeb7cf7e",
+      "name": "MySQL1",
+      "credentials": {
+        "mySql": {
+          "id": "xxxxxxxxxxxxxxxxxxxx",
+          "name": "MySQL GLPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -592,
+        256
+      ],
+      "id": "aad67c4f-1cce-4d93-b510-c9b659a57451",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3944dc68-c55c-44d5-a0fc-adc5bcdd053b",
+              "leftValue": "={{ $json.telefone_validador }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -160,
+        256
+      ],
+      "id": "cdff5e33-c4a4-485a-99ad-bc352efb42ac",
+      "name": "Separa Tickets sem Whats"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE glpi_ticketvalidations SET NOTIFICADO = NULL WHERE id = {{ $('MySQL').item.json.validacao_id }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.4,
+      "position": [
+        64,
+        400
+      ],
+      "id": "1e420a6d-8681-4deb-9ba1-af8ddea318a4",
+      "name": "MySQL2",
+      "credentials": {
+        "mySql": {
+          "id": "xxxxxxxxxxxxxxxxxxxx",
+          "name": "MySQL GLPI"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n    let telefone = item.json.telefone_validador || '';\n\n    // Converte para texto\n    telefone = String(telefone);\n\n    // Remove tudo que não for número\n    telefone = telefone.replace(/\\D/g, '');\n\n    // Remove zeros no início\n    telefone = telefone.replace(/^0+/, '');\n\n    // Se tiver número e não começar com 55, adiciona\n    if (telefone && !telefone.startsWith('55')) {\n        telefone = '55' + telefone;\n    }\n\n    // Validação: precisa ter 55 + DDD + número\n    // Ex.: 5511999999999 ou 5511988888888 (números fictícios)\n    if (telefone.length >= 12 && telefone.length <= 13) {\n        item.json.telefone_formatado = telefone;\n        item.json.telefone_valido = true;\n        item.json.erro_telefone = null;\n    } else {\n        item.json.telefone_formatado = null;\n        item.json.telefone_valido = false;\n        item.json.erro_telefone = `Telefone inválido: ${telefone}`;\n    }\n\n    return item;\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        64,
+        112
+      ],
+      "id": "76c6846a-9ce4-464e-bf07-258e31b6dd3d",
+      "name": "Formata telefone"
+    }
+  ],
+  "connections": {
+    "MySQL": {
+      "main": [
+        [
+          {
+            "node": "Separa Tickets sem Whats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "MySQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Separa Tickets sem Whats": {
+      "main": [
+        [
+          {
+            "node": "Formata telefone",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "MySQL2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formata telefone": {
+      "main": [
+        [
+          {
+            "node": "Envia mensagem WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Envia mensagem WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "MySQL1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "xxxxxxxxxxxxxxxxxxxx"
+  }
+}
